@@ -1,0 +1,94 @@
+name: update-freshgram
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Update even if the upstream revision is unchanged"
+        type: boolean
+        default: false
+
+concurrency:
+  group: update-freshgram
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342
+        with:
+          extra_nix_config: |
+            extra-experimental-features = nix-command flakes
+
+      - name: Get upstream revision
+        id: upstream
+        run: |
+          rev=$(git ls-remote https://github.com/Snowy-Fluffy/freshGram.git refs/heads/main | cut -f1)
+          test -n "$rev"
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Get current revision
+        id: current
+        run: |
+          rev=$(sed -n 's/.*rev = "\([^"]*\)".*/\1/p' default.nix | head -1)
+          test -n "$rev"
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+
+      - name: Update revision, version and hash
+        id: update
+        if: github.event_name == 'workflow_dispatch' && inputs.force || steps.upstream.outputs.rev != steps.current.outputs.rev
+        run: |
+          rev="${{ steps.upstream.outputs.rev }}"
+
+          version=$(curl -fsSL \
+            "https://raw.githubusercontent.com/Snowy-Fluffy/freshGram/$rev/Telegram/build/version" \
+            | awk '$1 == "AppVersionStr" { print $2; exit }')
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          nix run nixpkgs#nix-prefetch-git -- \
+            --url https://github.com/Snowy-Fluffy/freshGram.git \
+            --rev "$rev" \
+            --fetch-submodules \
+            --quiet > /tmp/prefetch.json
+
+          hash=$(jq -r .hash /tmp/prefetch.json)
+          test -n "$hash"
+
+          sed -i "s|rev = \"[^\"]*\"|rev = \"$rev\"|" default.nix
+          sed -i "s|version = \"[^\"]*\"|version = \"$version\"|" default.nix
+          sed -i "s|hash = \"[^\"]*\"|hash = \"$hash\"|" default.nix
+
+          git diff -- default.nix
+
+      - name: Create or update pull request
+        if: github.event_name == 'workflow_dispatch' && inputs.force || steps.upstream.outputs.rev != steps.current.outputs.rev
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.UPDATE_TOKEN }}
+          base: ${{ github.event.repository.default_branch }}
+          branch: update/freshgram
+          delete-branch: true
+          title: "freshGram: update to ${{ steps.update.outputs.version }} (${{ steps.upstream.outputs.rev }})"
+          commit-message: "freshGram: update to ${{ steps.update.outputs.version }} (${{ steps.upstream.outputs.rev }})"
+          body: |
+            Version: `${{ steps.update.outputs.version }}`
+
+            Upstream commit:
+            https://github.com/Snowy-Fluffy/freshGram/commit/${{ steps.upstream.outputs.rev }}
+
+            Compare:
+            https://github.com/Snowy-Fluffy/freshGram/compare/${{ steps.current.outputs.rev }}...${{ steps.upstream.outputs.rev }}
