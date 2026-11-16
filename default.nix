@@ -52,13 +52,13 @@
 let
   unwrapped = stdenv.mkDerivation (finalAttrs: {
     pname = "freshGram-unwrapped";
-    version = "7.5.9";
+    version = "7.6.0";
 
     src = fetchFromGitHub {
       owner = "Snowy-Fluffy";
       repo = "freshGram";
-      rev = "daccd7e77579a4f946d30de35ea642a60d9231e1";
-      hash = "sha256-7kdhB0qUZwTgd1S5NyPvDN6G4fsqts7arlNArBQ8fO4=";
+      rev = "ca5f99e72586b5c76ec701b88955f86a5d05ff26";
+      hash = "sha256-/rXs2PZT3MKfD1mPb0LdgEmJ/o6TUBTXX6mvccW3kQw=";
       fetchSubmodules = true;
     };
 
